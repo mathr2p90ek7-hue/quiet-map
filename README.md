@@ -80,3 +80,11 @@ This tool exists to preserve thoughts, not to control people.
 
 This project is released under the MIT License.  
 Please also read ETHICAL_USE.md for the intent behind this work.
+
+## Key Discussion Questions
+
+This project is grounded in open questions about how and why discussions can remain *quiet*.
+
+See:
+- [What makes an argument “quiet”? (#1)](https://github.com/mathr2p90ek7-hue/quiet-map/issues/1)
+- [When does an argument become noisy? (#2)](https://github.com/mathr2p90ek7-hue/quiet-map/issues/2)
