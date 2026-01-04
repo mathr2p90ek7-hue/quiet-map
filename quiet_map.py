@@ -43,33 +43,36 @@ GRID_Y = 18  # rough line height
 #   "next" : next lane (反論など)
 #   "meta" : meta area
 CONNECTOR_TO_RULE = {
-    # same lane
-    "なぜなら": ("premise", "same"),
-    "たとえば": ("evidence", "same"),
-    "加えて": ("addition", "same"),
-    "つまり": ("clarification", "same"),
-    # next lane (counter / rebuttal)
-    "しかし": ("counter", "next"),
-    "一方で": ("counter", "next"),
-    "ただし": ("rebuttal", "next"),
-    "それでも": ("rebuttal", "next"),
-    # meta
+    # --- Meta (non pro/con) ---
     "前提として": ("assumption", "meta"),
     "定義として": ("definition", "meta"),
     "問いとして": ("question", "meta"),
     "補足として": ("clarification", "meta"),
-    "別の観点で": ("issue_shift", "meta"),
+    "論点を変えて": ("issue_shift", "meta"),  # no-link (see add_child)
+
+    # --- Claim ---
+    "主張として": ("claim", "same"),
+    "結論として": ("claim", "same"),
+
+    # --- Support (same lane) ---
+    "なぜなら": ("premise", "same"),
+    "根拠として": ("premise", "same"),
+    "例えば": ("evidence", "same"),
+
+    # --- Counter / Rebuttal (next lane) ---
+    "しかし": ("counter", "next"),
+    "それでも": ("rebuttal", "next"),
 }
 
-EDITOR_CONNECTORS_MAIN = ["", "なぜなら", "たとえば", "加えて", "つまり", "しかし", "一方で", "ただし", "それでも"]
-EDITOR_CONNECTORS_META = ["", "前提として", "定義として", "問いとして", "補足として", "別の観点で"]
+EDITOR_CONNECTORS_MAIN = ["", "主張として", "結論として", "なぜなら", "根拠として", "例えば", "しかし", "それでも", "補足として"]
+EDITOR_CONNECTORS_META = ["", "前提として", "定義として", "問いとして", "補足として", "論点を変えて"]
 
 ADD_CHOICES_MAIN = [
     "なぜなら", "たとえば", "加えて", "つまり",
     "しかし", "一方で", "ただし", "それでも",
-    "前提として", "定義として", "問いとして", "補足として", "別の観点で",
+    "前提として", "定義として", "問いとして", "補足として", "論点を変えて",
 ]
-ADD_CHOICES_META = ["定義として", "前提として", "問いとして", "補足として", "別の観点で"]
+ADD_CHOICES_META = ["定義として", "前提として", "問いとして", "補足として", "論点を変えて"]
 
 
 def sample_map():
@@ -102,7 +105,7 @@ def sample_map():
     add_node(LANE_META, 60, "これは『きのこの山』と『たけのこの里』の好みを語る、平和な議論です。", "前提として", "assumption")
     add_node(LANE_META, 140, "評価軸は『味』『食感』『食べやすさ』『気分（思い出）』など複数あってOKです。", "定義として", "definition")
     add_node(LANE_META, 220, "あなたにとって『おいしい』の決め手は何ですか？", "問いとして", "question")
-    add_node(LANE_META, 300, "論点がズレたら『別の観点で』として別枠に置き、無理に繋げません。", "補足として", "clarification")
+    add_node(LANE_META, 300, "論点がズレたら『論点を変えて』として別枠に置き、無理に繋げません。", "補足として", "clarification")
 
     # Pro lane 0: きのこ派
     p0 = add_node(0, 80, "私は『きのこの山』派です。チョコとビスケットのバランスが良い。", "", "claim")
@@ -130,8 +133,8 @@ def sample_map():
     rr2 = add_node(3, 380, "割れにくく、持ち運びにも向く。", "加えて", "addition"); link(rr0, rr2)
 
     # Meta: issue shift examples (NOT linked)
-    add_node(LANE_META, 420, "価格・内容量・キャンペーン等も好みに影響するかもしれません。", "別の観点で", "issue_shift")
-    add_node(LANE_META, 500, "子どもの頃の思い出（親が買ってくれた等）が好みを決める場合もあります。", "別の観点で", "issue_shift")
+    add_node(LANE_META, 420, "価格・内容量・キャンペーン等も好みに影響するかもしれません。", "論点を変えて", "issue_shift")
+    add_node(LANE_META, 500, "子どもの頃の思い出（親が買ってくれた等）が好みを決める場合もあります。", "論点を変えて", "issue_shift")
 
     return {"nodes": nodes, "edges": edges, "meta": {"title": "Kinoko vs Takenoko", "version": 1}}
 
@@ -291,9 +294,14 @@ class QuietMapApp(tk.Tk):
             "connector": connector,
             "type": ntype,
             "text": "（ここに本文）",
-            "parent": parent_id,
+            "parent": "",
         }
-        self.edges.append({"source": parent_id, "target": node_id})
+        # issue_shift ノードは「論点の分岐」を示すため、矢印で結ばない（quiet map の方針）
+        if ntype == "issue_shift":
+            self.nodes[node_id]["parent"] = ""  # no parent link
+        else:
+            self.edges.append({"source": parent_id, "target": node_id})
+            self.nodes[node_id]["parent"] = parent_id
         self.selected_id = node_id
         self.auto_layout()
         self.redraw()
@@ -463,6 +471,10 @@ class QuietMapApp(tk.Tk):
             self.open_editor(nid)
 
     def on_right_click(self, ev):
+        """
+        Right-click context menu (追加 / Delete)
+        右クリックのメニューは「次に追加するノード＝接続詞」で選ぶ（ノードtypeは自動）
+        """
         x = self.canvas.canvasx(ev.x)
         y = self.canvas.canvasy(ev.y)
         nid = self.hit_test_node(x, y)
@@ -477,15 +489,39 @@ class QuietMapApp(tk.Tk):
 
         self._context_menu.delete(0, tk.END)
 
+        # issue_shift 自体からは「矢印で結ぶ追加」はしない（quiet map 方針）
         if lane == LANE_META and ntype == "issue_shift":
-            self._context_menu.add_command(label="（issue_shift からは追加しません）", state="disabled")
+            self._context_menu.add_command(label="（論点を変えて からは追加しません）", state="disabled")
         else:
-            choices = ADD_CHOICES_META if lane == LANE_META else ADD_CHOICES_MAIN
-            for conn in choices:
-                self._context_menu.add_command(
-                    label=f"追加: {conn}",
-                    command=lambda c=conn, pid=nid: self.add_child(pid, c),
-                )
+            # ---- compact, filtered choices ----
+            # main lanes: same-lane support / next-lane counter / optional meta
+            same_lane = ["なぜなら", "たとえば", "加えて", "つまり"]
+            next_lane = ["しかし", "一方で", "ただし", "それでも"]
+            meta_lane = ["前提として", "定義として", "問いとして", "補足として", "論点を変えて"]
+
+            if lane == LANE_META:
+                # meta lane: only meta connectors (矢印は issue_shift のみ抑止、他はOK)
+                for conn in meta_lane:
+                    self._context_menu.add_command(
+                        label=conn,
+                        command=lambda c=conn, pid=nid: self.add_child(pid, c),
+                    )
+            else:
+                # Use submenus to keep the menu quiet / メニューを静かに保つ
+                m_same = tk.Menu(self._context_menu, tearoff=0)
+                for conn in same_lane:
+                    m_same.add_command(label=conn, command=lambda c=conn, pid=nid: self.add_child(pid, c))
+                self._context_menu.add_cascade(label="同列に追加", menu=m_same)
+
+                m_next = tk.Menu(self._context_menu, tearoff=0)
+                for conn in next_lane:
+                    m_next.add_command(label=conn, command=lambda c=conn, pid=nid: self.add_child(pid, c))
+                self._context_menu.add_cascade(label="次列に追加", menu=m_next)
+
+                m_meta = tk.Menu(self._context_menu, tearoff=0)
+                for conn in meta_lane:
+                    m_meta.add_command(label=conn, command=lambda c=conn, pid=nid: self.add_child(pid, c))
+                self._context_menu.add_cascade(label="非賛否に追加", menu=m_meta)
 
         self._context_menu.add_separator()
         self._context_menu.add_command(label="削除", command=lambda pid=nid: self.delete_node(pid))
@@ -609,110 +645,199 @@ class QuietMapApp(tk.Tk):
 
     # ---- paragraph export ----
     def export_paragraphs(self):
-        children = {}
-        targets = set()
-        for e in self.edges:
-            s = e.get("source"); t = e.get("target")
-            if s and t:
-                children.setdefault(s, []).append(t)
-                targets.add(t)
+        """Generate paragraph-structured text from the current map."""
 
-        def ensure_sentence(s):
-            s = (s or "").strip()
-            if not s:
-                return ""
-            return s if s[-1] in "。！？!?" else s + "。"
+        # ---- normalize nodes to a simple list (parent_id format) ----
+        node_list = []
+        for nid, n in self.nodes.items():
+            t = (n.get("text") or "").strip()
+            if not t:
+                # allow empty nodes, but they don't add meaning in output
+                pass
+            ntype = (n.get("type") or "").strip()
 
-        def sentence(nid):
-            n = self.nodes[nid]
-            conn = (n.get("connector") or "").strip()
-            body = (n.get("text") or "").strip()
-            if not body:
-                return ""
-            b = ensure_sentence(body)
-            return f"{conn}、{b}" if conn else b
-
-        roots = [nid for nid in self.nodes.keys() if nid not in targets]
-        roots.sort(key=lambda nid: (0 if int(self.nodes[nid].get("lane", 0)) == LANE_META else 1,
-                                   int(self.nodes[nid].get("lane", 0)) if int(self.nodes[nid].get("lane", 0)) != LANE_META else -1,
-                                   int(self.nodes[nid].get("y", 0))))
-
-        paragraphs = []
-        visited = set()
-
-        meta_nodes = [nid for nid, n in self.nodes.items() if int(n.get("lane", 0)) == LANE_META]
-        meta_nodes.sort(key=lambda nid: int(self.nodes[nid].get("y", 0)))
-        meta_para = []
-        for nid in meta_nodes:
-            n = self.nodes[nid]
-            s = sentence(nid)
-            if not s:
-                continue
-            if (n.get("type") or "") == "issue_shift":
-                if meta_para:
-                    paragraphs.append(meta_para); meta_para = []
-                paragraphs.append([f"【別の観点】\n{s}"])
+            # Map app-internal types to generator types
+            if ntype == "issue_shift":
+                node_type = "meta_issue_shift"
+            elif ntype in ("assumption", "definition", "question", "clarification"):
+                node_type = "meta"
+            elif ntype in ("premise", "evidence", "counter", "rebuttal", "claim"):
+                # align naming a bit
+                node_type = {
+                    "counter": "counterclaim",
+                    "rebuttal": "rebuttal",
+                    "claim": "claim",
+                }.get(ntype, ntype)
             else:
-                meta_para.append(s)
-        if meta_para:
-            paragraphs.append(meta_para)
+                # fallback: treat unknown as meta (quiet default)
+                node_type = "meta"
 
-        def collect_same(start_id, lane):
-            queue = [start_id]
-            out = []
-            while queue:
-                nid = queue.pop(0)
-                if nid in visited or nid not in self.nodes:
-                    continue
-                if int(self.nodes[nid].get("lane", 0)) != lane:
-                    continue
-                visited.add(nid)
-                s = sentence(nid)
-                if s:
-                    out.append(s)
-                kids = [c for c in children.get(nid, []) if c in self.nodes and int(self.nodes[c].get("lane", 0)) == lane]
-                kids.sort(key=lambda c: int(self.nodes[c].get("y", 0)))
-                queue[0:0] = kids
-            return out
+            parent_id = (n.get("parent") or "").strip() or None
 
-        def collect_next(from_id, lane):
-            next_lane = lane + 1
-            kids = [c for c in children.get(from_id, []) if c in self.nodes and int(self.nodes[c].get("lane", 0)) == next_lane]
-            kids.sort(key=lambda c: int(self.nodes[c].get("y", 0)))
-            for c in kids:
-                para = collect_same(c, next_lane)
+            node_list.append({
+                "id": nid,
+                "parent_id": parent_id,
+                "text": t,
+                "node_type": node_type,
+                "connector": (n.get("connector") or "").strip(),
+                # order: prefer explicit, else y, else 0
+                "order": int(n.get("order", n.get("y", 0) or 0)),
+            })
+
+        def generate_structured_text(nodes):
+            # ---- index nodes ----
+            node_by_id = {n["id"]: n for n in nodes}
+            children = {n["id"]: [] for n in nodes}
+            for n in nodes:
+                pid = n.get("parent_id")
+                if pid and pid in children:
+                    children[pid].append(n["id"])
+
+            # ---- roots ----
+            roots = [n["id"] for n in nodes if not n.get("parent_id")]
+
+            def text(nid):
+                return (node_by_id[nid].get("text") or "").strip()
+
+            def ntype(nid):
+                return node_by_id[nid].get("node_type", "")
+
+            def connector(nid):
+                return node_by_id[nid].get("connector", "")
+
+            def ordered(ids):
+                return sorted(ids, key=lambda i: (node_by_id[i].get("order", 0), i))
+
+            def ensure_end(s):
+                s = (s or "").strip()
+                if not s:
+                    return ""
+                return s if s.endswith(("。", "？", "！", ".", "?", "!")) else s + "。"
+
+            # ---- same-lane cluster ----
+            def render_same_cluster(nid):
+                parts = []
+                main = ensure_end(text(nid))
+                if main:
+                    parts.append(main)
+
+                for cid in ordered(children.get(nid, [])):
+                    ct = ntype(cid)
+                    if ct not in ("premise", "evidence", "meta"):
+                        continue
+                    if ct == "meta" and ntype(cid) == "meta_issue_shift":
+                        continue
+
+                    t = ensure_end(text(cid))
+                    if not t:
+                        continue
+
+                    if ct == "premise":
+                        parts.append(f"なぜなら、{t}")
+                    elif ct == "evidence":
+                        parts.append(f"例えば、{t}")
+                    elif ct == "meta":
+                        prefix = {
+                            "前提として": "前提として、",
+                            "定義として": "定義として、",
+                            "問いとして": "ここで問いは、",
+                            "補足として": "なお、",
+                        }.get(connector(cid), "なお、")
+                        parts.append(prefix + t)
+                return "".join(parts).strip()
+
+            def render_from(nid):
+                out = []
+                nt = ntype(nid)
+
+                if nt == "meta_issue_shift":
+                    # Issue shift nodes start a new section; header is added once outside
+                    title = ensure_end(text(nid))
+                    if title:
+                        out.append(title)
+                    for c in ordered(children.get(nid, [])):
+                        out.extend(render_from(c))
+                    out.append("")
+                    return out
+
+                para = render_same_cluster(nid)
                 if para:
-                    paragraphs.append(para)
-                collect_next(c, next_lane)
+                    out.append(para)
 
-        for rid in roots:
-            if rid not in self.nodes:
-                continue
-            if int(self.nodes[rid].get("lane", 0)) == LANE_META:
-                continue
-            lane = int(self.nodes[rid].get("lane", 0))
-            para = collect_same(rid, lane)
-            if para:
-                paragraphs.append(para)
-            collect_next(rid, lane)
+                for cid in ordered(children.get(nid, [])):
+                    ct = ntype(cid)
+                    if ct == "counterclaim":
+                        t = ensure_end(text(cid))
+                        if t:
+                            out.append("しかし、" + t)
+                        # include same-lane support under this node
+                        cluster = render_same_cluster(cid)
+                        if cluster:
+                            out[-1] = cluster.replace(ensure_end(text(cid)), "しかし、" + ensure_end(text(cid))).strip()
+                        # recurse
+                        for cc in ordered(children.get(cid, [])):
+                            if ntype(cc) in ("rebuttal", "counterclaim", "meta_issue_shift", "claim"):
+                                out.extend(render_from(cc))
 
-        text = "\n\n".join(" ".join(p).strip() for p in paragraphs if p and " ".join(p).strip()).strip()
-        if not text:
-            text = "（本文が空のノードのみです）"
+                    elif ct == "rebuttal":
+                        t = ensure_end(text(cid))
+                        if t:
+                            out.append("それでも、" + t)
+                        cluster = render_same_cluster(cid)
+                        if cluster:
+                            out[-1] = cluster.replace(ensure_end(text(cid)), "それでも、" + ensure_end(text(cid))).strip()
+                        for cc in ordered(children.get(cid, [])):
+                            if ntype(cc) in ("rebuttal", "counterclaim", "meta_issue_shift", "claim"):
+                                out.extend(render_from(cc))
 
+                    elif ct in ("claim", "meta_issue_shift"):
+                        out.extend(render_from(cid))
+
+                return out
+
+            paragraphs = []
+            main_roots = [r for r in ordered(roots) if ntype(r) != "meta_issue_shift"]
+            issue_roots = [r for r in ordered(roots) if ntype(r) == "meta_issue_shift"]
+
+            # main discussion
+            for r in main_roots:
+                paragraphs.extend(render_from(r))
+
+            # issue shifts grouped once
+            if issue_roots:
+                paragraphs.append("")
+                paragraphs.append("【論点を変えて】")
+                for r in issue_roots:
+                    paragraphs.extend(render_from(r))
+
+
+            # clean consecutive blanks
+            cleaned = []
+            prev_blank = False
+            for p in paragraphs:
+                blank = not (p or "").strip()
+                if blank and prev_blank:
+                    continue
+                cleaned.append(p)
+                prev_blank = blank
+            return "\n\n".join(cleaned).strip()
+
+        out_text = generate_structured_text(node_list)
+
+        # ---- display output in a simple window ----
         win = tk.Toplevel(self)
-        win.title("文章出力")
-        win.geometry("720x520")
+        win.title("文章出力 / Export")
+        win.geometry("780x520")
 
-        t = tk.Text(win, wrap="word", font=("Meiryo UI", 11))
-        t.pack(fill="both", expand=True, padx=10, pady=10)
-        t.insert("1.0", text)
-
-        bar = ttk.Frame(win, padding=(10, 0, 10, 10))
+        bar = ttk.Frame(win)
         bar.pack(fill="x")
 
+        t = tk.Text(win, wrap="word")
+        t.pack(fill="both", expand=True)
+        t.insert("1.0", out_text)
+
         def save_txt():
-            path = filedialog.asksaveasfilename(title="文章を保存", defaultextension=".txt", filetypes=[("Text", "*.txt")])
+            path = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text", "*.txt"), ("Markdown", "*.md"), ("All", "*.*")])
             if not path:
                 return
             with open(path, "w", encoding="utf-8") as f:
